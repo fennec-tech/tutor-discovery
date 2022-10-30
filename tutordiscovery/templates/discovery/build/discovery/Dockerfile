@@ -1,9 +1,19 @@
 FROM docker.io/ubuntu:20.04
 
+
+
 ENV DEBIAN_FRONTEND=noninteractive
+
+{% if APT_PROXY -%}
+RUN echo 'Acquire::{{ APT_PROXY | url_part('scheme') }}::Proxy "{{ APT_PROXY }}";' \
+    > /etc/apt/apt.conf.d/00proxy 
+{%- endif %}
 RUN apt update && \
   apt install -y curl git-core language-pack-en python3 python3-pip python3-venv \
   build-essential libffi-dev libmysqlclient-dev libxml2-dev libxslt-dev libjpeg-dev libssl-dev
+{% if APT_PROXY -%}
+RUN rm /etc/apt/apt.conf.d/00proxy
+{%- endif %}
 ENV LC_ALL en_US.UTF-8
 
 ARG APP_USER_ID=1000
@@ -23,6 +33,10 @@ ENV DISCOVERY_CFG /openedx/config.yml
 # Install python venv
 RUN python3 -m venv ../venv/
 ENV PATH "/openedx/venv/bin:$PATH"
+
+ENV PIP_INDEX_URL={{ PIP_INDEX_URL }} \
+    PIP_TRUSTED_HOST={{ PIP_INDEX_URL | url_part('netloc') }}
+
 # https://pypi.org/project/setuptools/
 # https://pypi.org/project/pip/
 # https://pypi.org/project/wheel/
@@ -38,7 +52,7 @@ ENV PATH /openedx/nodeenv/bin:${PATH}
 # This is identical to "make production-requirements" but it was split in multiple
 # instructions to benefit from docker image caching
 RUN pip install -r requirements.txt
-ARG NPM_REGISTRY=https://registry.npmjs.org/
+ARG NPM_REGISTRY={{ NPM_REGISTRY }}
 RUN npm install --verbose --registry=$NPM_REGISTRY --production
 RUN ./node_modules/.bin/bower install --allow-root --production
 
@@ -49,6 +63,12 @@ RUN pip install django-redis==5.2.0
 # Install uwsgi
 # https://pypi.org/project/uWSGI/
 RUN pip install uwsgi==2.0.20
+
+ENV PIP_INDEX_URL= \
+    PIP_TRUSTED_HOST=
+USER root
+RUN apt install -y libcairo2
+USER ${APP_USER_ID}
 
 # Collect static assets
 COPY --chown=app:app assets.py ./course_discovery/settings/assets.py
